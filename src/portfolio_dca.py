@@ -1,11 +1,14 @@
 import sys
 from collections import defaultdict
+from datetime import timedelta
 
 import matplotlib.pyplot as pl
+import pandas as pd
 
 from analyzer import PortfolioAnalyzer
 from data import download_data
 from observer import WeightObserver
+from optimizer import find_optimal_portfolio
 from plot import plot_with_plotly
 
 pl.style.use("ggplot")  # default is also fine
@@ -15,7 +18,7 @@ import backtrader as bt
 
 class PortfolioDCA(bt.Strategy):
 
-    params = dict(threshold=0.025, monthly_cash=1000)
+    params = dict(threshold=0.025, monthly_cash=1000, risk_free_rate=0.04)
 
     def __init__(self):
         self.order = None
@@ -35,11 +38,30 @@ class PortfolioDCA(bt.Strategy):
             timername="buytimer",
         )
 
+    def calculate_weights(self):
+        data = pd.DataFrame(
+            data={
+                ticker_data._name: ticker_data.get(0, len(self))
+                for ticker_data in self.datas
+            },
+            index=self.datetime.get(0, len(self)),
+        )
+        optimal_portfolio = find_optimal_portfolio(
+            data, self.p.risk_free_rate, num_portfolios=10_000
+        )
+        self.weights = optimal_portfolio["allocations"]
+        return None
+
     def notify_timer(self, timer, when, *args, **kwargs):
+        six_months = 180
+        if len(self) < six_months:
+            return None
         self.broker.add_cash(self.p.monthly_cash)
         self.total_contributions += self.p.monthly_cash
-
         total_value = self.broker.get_value() + self.p.monthly_cash
+
+        self.calculate_weights()
+
         for ticker_data in self.datas:
             self.order_target_value(
                 ticker_data, target=total_value * self.weights[ticker_data._name]
@@ -91,11 +113,10 @@ def main(tickers, start=None, end=None):
 
     for ticker in tickers:
         bt_data = bt.feeds.PandasData(dataname=data[ticker])
-        bt_data.target_weight = 1 / len(tickers)
         cerebro.adddata(bt_data, name=ticker)
         cerebro.addobserver(WeightObserver, ticker=ticker)
 
-    cerebro.addstrategy(PortfolioDCA, monthly_cash=125000)
+    cerebro.addstrategy(PortfolioDCA, monthly_cash=1250, risk_free_rate=0.04)
 
     cerebro.setbroker(
         bt.BackBroker(cash=sys.float_info.epsilon, coc=True, fundmode=True)
@@ -118,11 +139,11 @@ if __name__ == "__main__":
         [
             "VTI",  # Total stock Market
             "BND",  # Total Bond Market
-            # "TLT",  # 20+ year treasury bond
-            # "GLD",  # Gold
-            # "VNQ",  # Real Estate
-            # "QQQ",  # Nasdaq
+            "TLT",  # 20+ year treasury bond
+            "GLD",  # Gold
+            "VNQ",  # Real Estate
+            "QQQ",  # Nasdaq
         ],
-        start="2024-05-01",
+        start="2015-05-01",
         end="2024-09-30",
     )

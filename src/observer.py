@@ -18,7 +18,7 @@ class ClassAttrObserver(Observer):
 class WeightObserver(Observer):
     params = dict(ticker=None)
     lines = ("weight",)
-    plotinfo = dict(plot=True, subplot=False)
+    plotinfo = dict(plot=True, subplot=True)
 
     def __init__(self):
         self.plotinfo.plotname = self.p.ticker
