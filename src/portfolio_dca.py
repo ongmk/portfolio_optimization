@@ -2,8 +2,14 @@ import sys
 from collections import defaultdict
 from datetime import timedelta
 
+import logzero
 import matplotlib.pyplot as pl
 import pandas as pd
+from logzero import logger
+
+from log_formatter import ColoredFormatter
+
+logzero.formatter(ColoredFormatter())
 
 from analyzer import PortfolioAnalyzer
 from data import download_data
@@ -18,7 +24,9 @@ import backtrader as bt
 
 class PortfolioDCA(bt.Strategy):
 
-    params = dict(threshold=0.025, monthly_cash=1000, risk_free_rate=0.04)
+    params = dict(
+        threshold=0.025, monthly_cash=1000, risk_free_rate=0.04, n_portfolios=10_000
+    )
 
     def __init__(self):
         self.order = None
@@ -47,7 +55,7 @@ class PortfolioDCA(bt.Strategy):
             index=self.datetime.get(0, len(self)),
         )
         optimal_portfolio = find_optimal_portfolio(
-            data, self.p.risk_free_rate, num_portfolios=10_000
+            data, self.p.risk_free_rate, num_portfolios=self.p.n_portfolios
         )
         self.weights = optimal_portfolio["allocations"]
         return None
@@ -60,17 +68,21 @@ class PortfolioDCA(bt.Strategy):
         self.total_contributions += self.p.monthly_cash
         total_value = self.broker.get_value() + self.p.monthly_cash
 
-        self.calculate_weights()
+        # self.calculate_weights()
 
         for ticker_data in self.datas:
             self.order_target_value(
-                ticker_data, target=total_value * self.weights[ticker_data._name]
+                ticker_data,
+                target=total_value
+                * self.weights[ticker_data._name]
+                * (1 - self.p.threshold),
             )
 
         return None
 
-    def log(self, txt):
-        print(f"[{self.datetime.date()}]    {txt}")
+    def log(self, txt, warning=False):
+        func = logger.warning if warning else logger.info
+        func(f"[{self.datetime.date()}]    {txt}")
 
     def notify_order(self, order):
         """Triggered upon changes to orders."""
@@ -90,7 +102,7 @@ class PortfolioDCA(bt.Strategy):
                 f"{action:<4} "
                 f"{order.data._name:>6} "
                 f"@ {order.executed.price:6.2f} "
-                f" x {order.created.size:<3}    "
+                f"x {order.created.size:<3}    "
                 f"Cost (Comm): ${cost:7.2f} "
                 f"({order.executed.comm:4.2f})    "
                 f"Position: {self.getposition(order.data).size:<2}    "
@@ -102,11 +114,26 @@ class PortfolioDCA(bt.Strategy):
                 self.sales[order.data._name] += 1
 
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log(f"Order status = {order.Status[order.status]}")
+            self.log(
+                f"Order status = {order.Status[order.status]} "
+                f"for {order.data._name} "
+                f"@ {order.created.price:,.2f} "
+                f"x {order.created.size} "
+                f"= ${order.created.size*order.created.price:,.2f}    "
+                f"Cash available = ${self.broker.get_cash():,.2f}    ",
+                warning=True,
+            )
         return None
 
 
-def main(tickers, start=None, end=None):
+def main(
+    tickers,
+    start=None,
+    end=None,
+    monthly_cash=1250,
+    risk_free_rate=0.04,
+    n_portfolios=1_000,
+):
     cerebro = bt.Cerebro(stdstats=True)
 
     data = download_data(tickers, start=start, end=end)
@@ -116,34 +143,42 @@ def main(tickers, start=None, end=None):
         cerebro.adddata(bt_data, name=ticker)
         cerebro.addobserver(WeightObserver, ticker=ticker)
 
-    cerebro.addstrategy(PortfolioDCA, monthly_cash=1250, risk_free_rate=0.04)
+    cerebro.addstrategy(
+        PortfolioDCA,
+        monthly_cash=monthly_cash,
+        risk_free_rate=risk_free_rate,
+        n_portfolios=n_portfolios,
+    )
 
     cerebro.setbroker(
         bt.BackBroker(cash=sys.float_info.epsilon, coc=True, fundmode=True)
     )
     cerebro.addobserver(bt.observers.DrawDown, fund=True)
 
-    cerebro.addanalyzer(PortfolioAnalyzer, riskfreerate=0.04)
+    cerebro.addanalyzer(PortfolioAnalyzer, riskfreerate=risk_free_rate)
 
     strategies = cerebro.run()
     for analyzer in strategies[0].analyzers:
         analyzer.print()
 
     pl.rcParams["figure.figsize"] = (16, (len(tickers) + 1) * 5)
-    cerebro.plot(volume=False)
-    # plot_with_plotly(cerebro)
+    # cerebro.plot(volume=False)
+    plot_with_plotly(cerebro)
 
 
 if __name__ == "__main__":
     main(
         [
             "VTI",  # Total stock Market
-            "BND",  # Total Bond Market
-            "TLT",  # 20+ year treasury bond
-            "GLD",  # Gold
-            "VNQ",  # Real Estate
-            "QQQ",  # Nasdaq
+            # "BND",  # Total Bond Market
+            # "TLT",  # 20+ year treasury bond
+            # "GLD",  # Gold
+            # "VNQ",  # Real Estate
+            # "QQQ",  # Nasdaq
         ],
         start="2015-05-01",
-        end="2024-09-30",
+        end="2024-10-31",
+        monthly_cash=1250,
+        risk_free_rate=0.04,
+        n_portfolios=1_000,
     )

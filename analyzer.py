@@ -1,5 +1,7 @@
 from backtrader import Analyzer, TimeFrame, num2date
-from backtrader.analyzers import DrawDown, Returns, SharpeRatio
+from backtrader.analyzers import DrawDown, Returns, SharpeRatio, TimeReturn
+from backtrader.mathsupport import average, standarddev
+from backtrader.utils.py3 import itervalues
 
 
 class PortfolioAnalyzer(Analyzer):
@@ -15,6 +17,12 @@ class PortfolioAnalyzer(Analyzer):
     ):
         sharpe_ratio_analyzer_kwargs["riskfreerate"] = self.p.riskfreerate
         self.sharpe = SharpeRatio(**sharpe_ratio_analyzer_kwargs)
+
+        self.time_return = TimeReturn(
+            timeframe=self.sharpe.p.timeframe,
+            compression=self.sharpe.p.compression,
+            fund=self.sharpe.p.fund,
+        )
 
         self.drawdown = DrawDown(**drawdown_analyzer_kwargs)
 
@@ -49,6 +57,11 @@ class PortfolioAnalyzer(Analyzer):
         number_of_years = duration.days / 365
 
         sharpe_ratio = self.sharpe.get_analysis()["sharperatio"]
+        returns = list(itervalues(self.time_return.get_analysis()))
+        returns_avg = average(returns)
+        returns_std = standarddev(
+            returns, avgx=returns_avg, bessel=self.sharpe.p.stddev_sample
+        )
 
         drawdown_analysis = self.drawdown.get_analysis()
         max_drawdown = drawdown_analysis["max"]["drawdown"]
@@ -66,6 +79,8 @@ class PortfolioAnalyzer(Analyzer):
             "Remaining Cash         ": f"${remaining_cash:,.2f}",
             "Purchases              ": f"{self.__get_transaction_string(self.strategy.purchases)}",
             "Sales                  ": f"{self.__get_transaction_string(self.strategy.sales)}",
+            "Annualized Sharpe Ratio": f"{sharpe_ratio:.2f}",
+            "Risk Free Rate         ": self.p.riskfreerate,
         }
         self.rets[2] = {
             "Nominal Value          ": f"${nominal_value:,.2f}",
@@ -74,10 +89,7 @@ class PortfolioAnalyzer(Analyzer):
             "Avg. Daily Return %    ": f"{avg_return:.2%}",
         }
         self.rets[3] = {
-            "Risk Free Rate         ": self.p.riskfreerate,
-            "Annualized Sharpe Ratio": f"{sharpe_ratio:.2f}",
-        }
-        self.rets[4] = {
+            "Standard Deviation     ": f"{returns_std:.2%}",
             "Max Drawdown %         ": f"{max_drawdown:.2f}%",
             "Max Drawdown Length    ": drawdown_analysis["max"]["len"],
         }

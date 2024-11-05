@@ -35,7 +35,8 @@ def get_portfolio_performances(numPortfolios, meanReturns, covMatrix, riskFreeRa
     actual_num_portfolios = len(portfolio_weights)
     results = np.zeros((3, actual_num_portfolios))
     allocations = []
-    for i in tqdm(range(actual_num_portfolios)):
+    # for i in tqdm(range(actual_num_portfolios)):
+    for i in range(actual_num_portfolios):
         portfolio_std_dev, portfolio_return = portfolio_annualised_performance(
             portfolio_weights[i], meanReturns, covMatrix
         )

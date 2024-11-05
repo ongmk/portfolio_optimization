@@ -1,7 +1,9 @@
+import pandas as pd
 import yfinance as yf
 
 
 def align_data_range(stockData):
+
     start = stockData.index.min()
     end = stockData.index.max()
     for stock in stockData.columns.levels[1]:
@@ -20,7 +22,10 @@ def download_data(stocks, **kwargs):
     stockData = yf.download(stocks, **kwargs)
     stockData["Close"] = stockData["Adj Close"]
     stockData = stockData.drop(columns=["Adj Close"])
-    stockData = align_data_range(stockData)
-    stockData = stockData.swaplevel(axis=1)
+    if isinstance(stockData.columns, pd.MultiIndex):
+        stockData = align_data_range(stockData)
+        stockData = stockData.swaplevel(axis=1)
+    else:
+        stockData.columns = pd.MultiIndex.from_product([[stocks[0]], stockData.columns])
 
     return stockData
