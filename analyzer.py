@@ -9,24 +9,23 @@ class PortfolioAnalyzer(Analyzer):
 
     def __init__(
         self,
-        sharpe_ratio_analyzer_kwargs=dict(
-            timeframe=TimeFrame.Days, annualize=True, fund=True
-        ),
-        drawdown_analyzer_kwargs=dict(fund=True),
-        returns_analyzer_kwargs=dict(timeframe=TimeFrame.Days, fund=True),
+        timeframe=TimeFrame.Years,
     ):
-        sharpe_ratio_analyzer_kwargs["riskfreerate"] = self.p.riskfreerate
-        self.sharpe = SharpeRatio(**sharpe_ratio_analyzer_kwargs)
-
-        self.time_return = TimeReturn(
-            timeframe=self.sharpe.p.timeframe,
-            compression=self.sharpe.p.compression,
-            fund=self.sharpe.p.fund,
+        self.sharpe = SharpeRatio(
+            timeframe=timeframe,
+            annualize=True,
+            fund=True,
+            riskfreerate=self.p.riskfreerate,
+            compression=None,
         )
 
-        self.drawdown = DrawDown(**drawdown_analyzer_kwargs)
+        self.time_return = TimeReturn(
+            timeframe=timeframe,
+            compression=None,
+            fund=True,
+        )
 
-        self.returns = Returns(**returns_analyzer_kwargs)
+        self.drawdown = DrawDown(fund=True)
 
         self.total_contributions = self.cash = self.value = 0.0
 
@@ -55,41 +54,37 @@ class PortfolioAnalyzer(Analyzer):
         self.stop_dt = self.__parse_date(self.data.datetime[0])
         duration = self.stop_dt - self.start_dt
         number_of_years = duration.days / 365
+        remaining_cash = self.strategy.broker.get_cash()
 
-        sharpe_ratio = self.sharpe.get_analysis()["sharperatio"]
-        returns = list(itervalues(self.time_return.get_analysis()))
-        returns_avg = average(returns)
-        returns_std = standarddev(
-            returns, avgx=returns_avg, bessel=self.sharpe.p.stddev_sample
-        )
+        nominal_value = self.strategy.broker.get_value()
+
+        total_return = self.strategy.broker.get_fundvalue() / 100 - 1
+        annual_returns = list(itervalues(self.time_return.get_analysis()))
+        avg_annual_return = average(annual_returns)
 
         drawdown_analysis = self.drawdown.get_analysis()
         max_drawdown = drawdown_analysis["max"]["drawdown"]
+        annual_returns_std = standarddev(
+            annual_returns, avgx=avg_annual_return, bessel=self.sharpe.p.stddev_sample
+        )
+        sharpe_ratio = self.sharpe.get_analysis()["sharperatio"]
 
-        returns_analysis = self.returns.get_analysis()
-        total_return = returns_analysis["rtot"]
-        annualized_return = returns_analysis["rnorm"]
-        avg_return = returns_analysis["ravg"]
-        remaining_cash = self.strategy.broker.get_cash()
-        nominal_value = self.strategy.broker.get_value()
-
-        self.rets[1] = {
+        self.rets["Info"] = {
             "Time in Market         ": f"{number_of_years:.1f} years",
-            "Total Contributions    ": f"${self.strategy.total_contributions}",
+            "Total Contributions    ": f"${self.strategy.total_contributions:,.2f}",
             "Remaining Cash         ": f"${remaining_cash:,.2f}",
             "Purchases              ": f"{self.__get_transaction_string(self.strategy.purchases)}",
             "Sales                  ": f"{self.__get_transaction_string(self.strategy.sales)}",
-            "Annualized Sharpe Ratio": f"{sharpe_ratio:.2f}",
-            "Risk Free Rate         ": self.p.riskfreerate,
         }
-        self.rets[2] = {
+        self.rets["Reward"] = {
             "Nominal Value          ": f"${nominal_value:,.2f}",
-            "Total Return %         ": f"{total_return:.2%}",
-            "Annualized Return %    ": f"{annualized_return:.2%}",
-            "Avg. Daily Return %    ": f"{avg_return:.2%}",
+            "Total Return           ": f"{total_return:.2%}",
+            "Mean Annualized Return ": f"{avg_annual_return:.2%}",
         }
-        self.rets[3] = {
-            "Standard Deviation     ": f"{returns_std:.2%}",
+        self.rets["Risk"] = {
+            "Risk Free Rate         ": self.p.riskfreerate,
+            "Sharpe Ratio           ": f"{sharpe_ratio:.2f}",
+            "Annual Returns STD     ": f"{annual_returns_std:.2%}",
             "Max Drawdown %         ": f"{max_drawdown:.2f}%",
             "Max Drawdown Length    ": drawdown_analysis["max"]["len"],
         }

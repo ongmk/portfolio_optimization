@@ -13,6 +13,8 @@ def n_combinations(n, r):
 
 
 def get_n_weight_combinations(stocks, num_portfolios):
+    if len(stocks) == 1:
+        return [np.array([1.0])]
     n_parts = len(stocks)
     while n_combinations(len(stocks), n_parts) < num_portfolios:
         n_parts += 1
